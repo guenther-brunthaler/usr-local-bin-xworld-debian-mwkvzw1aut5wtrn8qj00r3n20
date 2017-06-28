@@ -25,4 +25,4 @@ done
 for deb
 do
 	ar p "$deb" control.tar.gz | tar -xzO ./control
-done | sed 's/^Package: //; t; d'
+done | sed 's/^Package: //; t; d' | LC_COLLATE=C sort -u
