@@ -1,16 +1,25 @@
 #! /bin/sh
-# Version 17.179
+# Version 17.179.1
 # Copyright (c) 2017 Guenther Brunthaler. All rights reserved.
 # 
 # This script is free software.
 # Distribution is permitted under the terms of the GPLv3.
 set -e
-trap 'test $? = 0 || echo "$0 failed" >& 2' 0
+cleanup() {
+	rc=$?
+	test "$T" && rm -- "$T"
+	test $rc = 0 || echo "$0 failed" >& 2
+}
+T=
+trap cleanup 0
+trap 'exit $?' HUP INT TERM QUIT
 
 force=false
-while getopts f opt
+all=false
+while getopts fa opt
 do
 	case $opt in
+		a) all=true;; # Display all properties, pkgname-qualified.
 		f) force=true;; # Don't check filename extension.
 		*) false || exit
 	esac
@@ -22,7 +31,57 @@ do
 	$force || test "${deb%.deb}" != "$deb" || exit
 	test -f "$deb"
 done
-for deb
-do
-	ar p "$deb" control.tar.gz | tar -xzO ./control
-done | sed 's/^Package: //; t; d' | LC_COLLATE=C sort -u
+
+pctrl() {
+	ar p "$1" control.tar.gz | tar -xzOf - ./control
+}
+
+# Conditionally emits (or skips) line $whole of package $pn.
+emit() {
+	local label rest
+	rest=${whole#* }
+	label=${whole%": $rest"}
+	test "$label" = "Package" && return
+	printf '%s\n' "$pn $label $rest"
+}
+
+nfilter='s/^Package: //; t done; d; : done; q'
+if $all
+then
+	T=`mktemp -- "${TMPDIR:-/tmp}/${0##*/}.XXXXXXXXXX"`
+	for deb
+	do
+		pctrl "$deb" | sed "$nfilter" > "$T"
+		read -r pn < "$T"
+		test "$pn"
+		pctrl "$deb" | {
+			empty=true
+			while IFS= read -r line
+			do
+				if $empty
+				then
+					whole=$line
+					empty=false
+				else
+					if
+						expr x"$line" \
+							: x'[[:space:]]' \
+							> /dev/null
+					then
+						whole=$whole$line
+						empty=false
+					else
+						emit
+						empty=true
+					fi
+				fi
+			done
+			$empty || emit
+		}
+	done
+else
+	for deb
+	do
+		pctrl "$deb"
+	done | sed "$nfilter"
+fi | LC_COLLATE=C sort -u
