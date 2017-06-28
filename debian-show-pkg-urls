@@ -1,0 +1,51 @@
+#! /bin/sh
+# Version 17.179
+# Copyright (c) 2017 Guenther Brunthaler. All rights reserved.
+# 
+# This script is free software.
+# Distribution is permitted under the terms of the GPLv3.
+set -e
+cleanup() {
+	rc=$?
+	test "$TD" && rmdir -- "$TD"
+	test $rc = 0 || echo "$0 failed" >& 2
+}
+TD=
+trap cleanup 0
+trap 'exit $?' HUP INT TERM QUIT
+
+all_deps=
+while getopts a opt
+do
+	case $opt in
+		a) all_deps=x;;
+		*) false || exit
+	esac
+done
+shift `expr $OPTIND - 1 || :`
+
+if test "$all_deps"
+then
+	TD=`mktemp -d -- "${TMPDIR:-/tmp}/${0##*/}.XXXXXXXXXX"`
+fi
+
+if test $# = 0
+then
+	cat # No arguments? Read list of package names from stdin.
+else
+	for arg
+	do
+		printf '%s\n' "$arg"
+	done
+fi \
+| xargs apt-get install --reinstall \
+	${all_deps:+-o Dir::Cache::Archives="$TD"} \
+	${all_deps:+-o Dir::State::Status=/dev/null} \
+	-o APT::Install-Recommends=0 \
+	-o APT::Install-Suggests=0 \
+	--print-uris -qq -d -- "$@" \
+| while IFS= read -r settings
+do
+	eval "set -- $settings"
+	echo "${4#*:} $3 $2 $1"
+done
