@@ -45,13 +45,17 @@ emit() {
 	printf '%s\n' "$pn $label $rest"
 }
 
-nfilter='s/^Package: //; t done; d; : done; q'
 if $all
 then
 	T=`mktemp -- "${TMPDIR:-/tmp}/${0##*/}.XXXXXXXXXX"`
 	for deb
 	do
-		pctrl "$deb" | sed "$nfilter" > "$T"
+		pctrl "$deb" | sed '
+			s/^Package: //; t done
+			d
+			: done
+			q
+		' > "$T"
 		read -r pn < "$T"
 		test "$pn"
 		pctrl "$deb" | {
@@ -69,10 +73,9 @@ then
 							> /dev/null
 					then
 						whole=$whole$line
-						empty=false
 					else
 						emit
-						empty=true
+						whole=$line
 					fi
 				fi
 			done
@@ -83,5 +86,5 @@ else
 	for deb
 	do
 		pctrl "$deb"
-	done | sed "$nfilter"
+	done | sed 's/^Package: //; t; d'
 fi | LC_COLLATE=C sort -u
