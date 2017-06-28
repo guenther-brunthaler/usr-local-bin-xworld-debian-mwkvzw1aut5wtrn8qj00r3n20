@@ -1,0 +1,28 @@
+#! /bin/sh
+# Version 17.179
+# Copyright (c) 2017 Guenther Brunthaler. All rights reserved.
+# 
+# This script is free software.
+# Distribution is permitted under the terms of the GPLv3.
+set -e
+trap 'test $? = 0 || echo "$0 failed" >& 2' 0
+
+force=false
+while getopts f opt
+do
+	case $opt in
+		f) force=true;; # Don't check filename extension.
+		*) false || exit
+	esac
+done
+shift `expr $OPTIND - 1 || :`
+
+for deb
+do
+	$force || test "${deb%.deb}" != "$deb" || exit
+	test -f "$deb"
+done
+for deb
+do
+	ar p "$deb" control.tar.gz | tar -xzO ./control
+done | sed 's/^Package: //; t; d'
