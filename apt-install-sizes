@@ -1,0 +1,108 @@
+#! /bin/sh
+exit_version() {
+	cat << EOF; exit
+$APPLICATION_NAME Version 2017.192
+
+Copyright (c) 2017 Guenther Brunthaler. All rights reserved.
+
+This script file is free software.
+Distribution is permitted under the terms of the GPLv3.
+EOF
+}
+APPLICATION_NAME=${0##*/}
+
+set -e
+trap 'test $? = 0 || echo "$0 failed!" >& 2' 0
+
+exit_help() {
+	cat << EOF; echo; exit_version # Line width: 66
+$APPLICATION_NAME - show download sizes for APT packages
+
+Usage: $APPLICATION_NAME [ <options> ] [<pkg_grp1> <pkg_grp2> ...]
+
+where <pkg_grp1> ... are groups consisting of either a single
+installation package name or multiple package names (as one
+argument per group, the names within the argument separated by
+spaces).
+
+$APPLICATION_NAME will then calculate the combined download size
+for every group and display the result in multiple lines, one
+line per group. The lines will be sorted by group size.
+
+Each group, whether containing just a single package or multiple
+packages, must be specified as an individual argument to
+$APPLICATION_NAME. This means that groups containing more than
+one package must be enclosed within quotation marks.
+
+Alternatively, the groups can also be read from a file rather
+than taken from the program's arguments.
+
+This mode is automatically enabled when no arguments have been
+specified; $APPLICATION_NAME reads then a list of package groups
+from standard input, one group per line. Within each line, the
+packages within a group must be separated by a space. In this
+case, no enclosing in quotation marks is necessary or allowed.
+
+Options:
+
+-d: Include the download sizes of all mandatory installation dependencies in
+    the group size calculation. Note that this will include *everything* down
+    to the C library and X server if needed, and will therefore be *much*
+    larger than the download sizes of the requested packages allone. It will
+    also take *much* longer to calculate. However, this option allows one to
+    determine how fat an application actually is, and what would need to be
+    downloaded for a given package group on a minimalistic system where
+    nothing (except for kernel and bootloader) has been installed yet.
+-h: Display this help.
+-V: Display version of $APPLICATION_NAME and exit.
+EOF
+}
+
+include_all_dependencies=false
+while getopts dhV opt
+do
+	case $opt in
+		d) include_all_dependencies=true;;
+		h) exit_help;;
+		V) exit_version;;
+		*) false || exit
+	esac
+done
+shift `expr $OPTIND - 1 || :`
+
+process_group() {
+	printf '%s: ' "$*"
+	# Build apt-get command line, starting from behind.
+	set -- --print-uris -qq -- "$@"
+	# Make apt-get think there are no downloaded files yet.
+	set -- -o Dir::Cache::archives=/var/empty/ "$@"
+	if $include_all_dependencies
+	then
+		# Make apt-get forget that many packages are already
+		# installed.
+		set -- -o Dir::State::status=/dev/null "$@"
+	fi
+	set -- --download --reinstall "$@"
+	apt-get install "$@" | {
+		s=0
+		while IFS= read line
+		do
+			eval 'set -- $line'
+			s=`expr $s + $3`
+		done
+		echo "`expr \( $s + 512 \) / 1024 || :` KiB"
+	}
+}
+
+if test $# = 0
+then
+	while IFS= read -r line
+	do
+		process_group $line
+	done
+else
+	for line
+	do
+		process_group $line
+	done
+fi | sort -t : -nk2
