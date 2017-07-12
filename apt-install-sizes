@@ -1,7 +1,7 @@
 #! /bin/sh
 exit_version() {
 	cat << EOF; exit
-$APPLICATION_NAME Version 2017.192.2
+$APPLICATION_NAME Version 2017.192.3
 
 Copyright (c) 2017 Guenther Brunthaler. All rights reserved.
 
@@ -49,6 +49,15 @@ Options:
     etc.
 -B: Use binary units like KiB and MiB in the output, rather than
     decimal units like kB and MB (decimal units are the default).
+-i: Honor already-installed packages. This means such packages
+    will not be included in the shown download sizes. Use this
+    option if you want to know what the installation of a group
+    would download NOW for the local machine.
+-c: Honor the download cache. Packages which are not installed,
+    but have already been downloaded, are excluded from the shown
+    download sizes. Specifying both options -i and -c give the
+    best estimate of actual downloads required for installing a
+    package group on the local machine in its current state.
 -d: Include the download sizes of all mandatory installation
     dependencies in the group size calculation. Note that this
     will include *everything* down to the C library and X server
@@ -76,9 +85,13 @@ include_suggested=false
 DEBUG=false
 use_binary_units=false
 units_are_bytes=false
-while getopts BbDrsdhV opt
+honor_already_installed=false
+honor_download_cache=false
+while getopts ciBbDrsdhV opt
 do
 	case $opt in
+		c) honor_download_cache=true;;
+		i) honor_already_installed=true;;
 		b) units_are_bytes=true;;
 		B) use_binary_units=true;;
 		D) DEBUG=true;;
@@ -100,9 +113,17 @@ process_group() {
 	printf '%s: ' "$*"
 	# Build apt-get command line, starting from behind.
 	set -- --print-uris -qq -- "$@"
-	# Make apt-get think there are no downloaded files yet.
-	set -- -o Dir::Cache::archives=/var/empty/ "$@"
-	if $include_all_dependencies
+	if $honor_download_cache
+	then
+		:
+	else
+		# Make apt-get think there are no downloaded files yet.
+		set -- -o Dir::Cache::archives=/var/empty/ "$@"
+	fi
+	if $honor_already_installed
+	then
+		:
+	elif $include_all_dependencies
 	then
 		# Make apt-get forget that many packages are already
 		# installed.
@@ -110,7 +131,13 @@ process_group() {
 	fi
 	set -- -o APT::Install-Suggests=`b2i $include_suggested` "$@"
 	set -- -o APT::Install-Recommends=`b2i $include_recommended` "$@"
-	set -- --download --reinstall "$@"
+	if $honor_already_installed
+	then
+		:
+	else
+		set -- --reinstall "$@"
+	fi
+	set -- --download "$@"
 	set apt-get install "$@"
 	if $DEBUG
 	then
@@ -158,9 +185,27 @@ fi
 if $include_all_dependencies
 then
 	cat << EOF # Line width 66
-* The download sizes of all packages directly of indirectly
+* The download sizes of all packages directly or indirectly
   required by the resulting list of packages are also included
   for each package group.
+
+EOF
+fi
+if $honor_already_installed
+then
+	cat << EOF # Line width 66
+* Packages which are already installed on the local machine are
+  excluded from the displayed download sizes.
+
+EOF
+fi
+if $honor_download_cache
+then
+	cat << EOF # Line width 66
+* Packages for which the installation files have already been
+  downloaded to the local download cache are excluded from the
+  displayed download sizes. It does not matter whether they are
+  actually installed or not.
 
 EOF
 fi
