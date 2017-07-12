@@ -1,7 +1,7 @@
 #! /bin/sh
 exit_version() {
 	cat << EOF; exit
-$APPLICATION_NAME Version 2017.192
+$APPLICATION_NAME Version 2017.192.2
 
 Copyright (c) 2017 Guenther Brunthaler. All rights reserved.
 
@@ -45,23 +45,45 @@ case, no enclosing in quotation marks is necessary or allowed.
 
 Options:
 
--d: Include the download sizes of all mandatory installation dependencies in
-    the group size calculation. Note that this will include *everything* down
-    to the C library and X server if needed, and will therefore be *much*
-    larger than the download sizes of the requested packages allone. It will
-    also take *much* longer to calculate. However, this option allows one to
-    determine how fat an application actually is, and what would need to be
-    downloaded for a given package group on a minimalistic system where
-    nothing (except for kernel and bootloader) has been installed yet.
+-b: Display all values exactly in bytes rather than kB, MB, GB
+    etc.
+-B: Use binary units like KiB and MiB in the output, rather than
+    decimal units like kB and MB (decimal units are the default).
+-d: Include the download sizes of all mandatory installation
+    dependencies in the group size calculation. Note that this
+    will include *everything* down to the C library and X server
+    if needed, and will therefore be *much* larger than the
+    download sizes of the requested packages allone. It will also
+    take *much* longer to calculate. However, this option allows
+    one to determine how fat an application actually is, and what
+    would need to be downloaded for a given package group on a
+    minimalistic system where nothing (except for kernel and
+    bootloader) has been installed yet.
+-r: Include recommended packages by each package group in the
+    download size. By default, recommended packages are not
+    automatically included.
+-s: Include suggested packages by each package group in the
+    download size. By default, suggested packages are not
+    automatically included.
 -h: Display this help.
 -V: Display version of $APPLICATION_NAME and exit.
 EOF
 }
 
 include_all_dependencies=false
-while getopts dhV opt
+include_recommended=false
+include_suggested=false
+DEBUG=false
+use_binary_units=false
+units_are_bytes=false
+while getopts BbDrsdhV opt
 do
 	case $opt in
+		b) units_are_bytes=true;;
+		B) use_binary_units=true;;
+		D) DEBUG=true;;
+		r) include_recommended=true;;
+		s) include_suggested=true;;
 		d) include_all_dependencies=true;;
 		h) exit_help;;
 		V) exit_version;;
@@ -69,6 +91,10 @@ do
 	esac
 done
 shift `expr $OPTIND - 1 || :`
+
+b2i() {
+	$1 && echo 1 || echo 0
+}
 
 process_group() {
 	printf '%s: ' "$*"
@@ -82,18 +108,65 @@ process_group() {
 		# installed.
 		set -- -o Dir::State::status=/dev/null "$@"
 	fi
+	set -- -o APT::Install-Suggests=`b2i $include_suggested` "$@"
+	set -- -o APT::Install-Recommends=`b2i $include_recommended` "$@"
 	set -- --download --reinstall "$@"
-	apt-get install "$@" | {
+	set apt-get install "$@"
+	if $DEBUG
+	then
+		local line arg
+		line=
+		for arg
+		do
+			case $arg in
+				*" "*) arg="'$arg'"
+			esac
+			line=$line${line:+ }$arg
+		done
+		echo "$line" >& 2
+		return
+	fi
+	"$@" | {
 		s=0
 		while IFS= read line
 		do
 			eval 'set -- $line'
 			s=`expr $s + $3`
 		done
-		echo "`expr \( $s + 512 \) / 1024 || :` KiB"
+		echo $s
 	}
 }
 
+t='Package group download sizes, sorted by group totals'
+echo "$t"; printf '%*s' ${#t} '' | tr -c = =; echo; echo
+if $include_recommended
+then
+	cat << EOF # Line width 66
+* The download sizes of all recommended packages are included for
+  each package group.
+
+EOF
+fi
+if $include_suggested
+then
+	cat << EOF # Line width 66
+* The download sizes of all suggested packages are included for
+  each package group.
+
+EOF
+fi
+if $include_all_dependencies
+then
+	cat << EOF # Line width 66
+* The download sizes of all packages directly of indirectly
+  required by the resulting list of packages are also included
+  for each package group.
+
+EOF
+fi
+decimal_point=
+eval `locale -k LC_NUMERIC | grep ^decimal_point=` 2> /dev/null || :
+: ${decimal_point:="."}
 if test $# = 0
 then
 	while IFS= read -r line
@@ -105,4 +178,43 @@ else
 	do
 		process_group $line
 	done
-fi | sort -t : -nk2
+fi | sort -t : -nk2 | while IFS= read -r line
+do
+	bytes=`expr x"$line" : x'.*\(: [0-9]\{1,\}\)$'`
+	bytes=${bytes#": "}; line=${line%"$bytes"}
+	divisor=`$use_binary_units && echo 1024 || echo 1000`
+	limit=$divisor
+	for unit in bytes K M G T P E Z Y
+	do
+		if test $unit != bytes
+		then
+			case $unit=$use_binary_units in
+				K=false) unit=k
+			esac
+			$use_binary_units && unit=${unit}i
+			unit=${unit}B
+		fi
+		if
+			$units_are_bytes || test $unit = Y \
+			|| test $bytes -lt $limit
+		then
+			if test $unit != bytes
+			then
+				leading=${bytes%?}
+				fractional=${bytes#$leading}
+				bytes=$leading$decimal_point$fractional
+			fi
+			bytes="$bytes $unit"
+			break
+		fi
+		if test $unit = bytes
+		then
+			limit=`expr $divisor \* 10`
+			bytes=`expr $bytes \* 10 || :`
+			divisor2=`expr $divisor \* 2`
+		fi
+		# bytes = floor(bytes / divisor + 0.5)
+		bytes=`expr \( $bytes \* 2 + $divisor \) / $divisor2 || :`
+	done
+	printf '%s\n' "$line$bytes"
+done
