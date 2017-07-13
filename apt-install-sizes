@@ -249,8 +249,9 @@ fi | sort -t : -nk2 | while IFS= read -r line
 do
 	bytes=`expr x"$line" : x'.*\(: [0-9]\{1,\}\)$'`
 	bytes=${bytes#": "}; line=${line%"$bytes"}
-	divisor=`$use_binary_units && echo 1024 || echo 1000`
-	limit=$divisor
+	multiples=`$use_binary_units && echo 1024 || echo 1000`
+	limit=$multiples
+	divisor=1
 	for unit in bytes K M G T P E Z Y
 	do
 		if test $unit != bytes
@@ -261,14 +262,19 @@ do
 			$use_binary_units && unit=${unit}i
 			unit=${unit}B
 		fi
+		# coeff = floor(bytes / divisor + 0.5)
+		coeff=`
+			expr \( $bytes \* 2 + $divisor \) \
+				/ \( $divisor \* 2  \) || :
+		`
 		if
 			$units_are_bytes || test $unit = Y \
-			|| test $bytes -lt $limit
+			|| test $coeff -lt $limit
 		then
 			if test $unit != bytes
 			then
-				leading=${bytes%$fractional_pic}
-				fractional=${bytes#$leading}
+				leading=${coeff%$fractional_pic}
+				fractional=${coeff#$leading}
 				bytes=$leading$decimal_point$fractional
 			fi
 			bytes="$bytes $unit"
@@ -276,16 +282,13 @@ do
 		fi
 		if test $unit = bytes
 		then
-			limit=$divisor
 			for fr in `seq $fractional_digits`
 			do
 				limit=`expr $limit \* 10`
 				bytes=`expr $bytes \* 10 || :`
 			done
-			divisor2=`expr $divisor \* 2`
 		fi
-		# bytes = floor(bytes / divisor + 0.5)
-		bytes=`expr \( $bytes \* 2 + $divisor \) / $divisor2 || :`
+		divisor=`expr $divisor \* $multiples`
 	done
 	printf '%s\n' "$line$bytes"
 done
