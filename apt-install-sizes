@@ -1,7 +1,7 @@
 #! /bin/sh
 exit_version() {
 	cat << EOF; exit
-$APPLICATION_NAME Version 2017.192.3
+$APPLICATION_NAME Version 2017.192.4
 
 Copyright (c) 2017 Guenther Brunthaler. All rights reserved.
 
@@ -49,6 +49,9 @@ Options:
     etc.
 -B: Use binary units like KiB and MiB in the output, rather than
     decimal units like kB and MB (decimal units are the default).
+-F <digits>: The number of fractional digits to use for
+    displaying the package size totals. A value of 0 is allowed.
+    Has no effect if option -b is also used.
 -i: Honor already-installed packages. This means such packages
     will not be included in the shown download sizes. Use this
     option if you want to know what the installation of a group
@@ -87,9 +90,11 @@ use_binary_units=false
 units_are_bytes=false
 honor_already_installed=false
 honor_download_cache=false
-while getopts ciBbDrsdhV opt
+fractional_digits=2
+while getopts F:ciBbDrsdhV opt
 do
 	case $opt in
+		F) fractional_digits=$OPTARG;;
 		c) honor_download_cache=true;;
 		i) honor_already_installed=true;;
 		b) units_are_bytes=true;;
@@ -104,6 +109,16 @@ do
 	esac
 done
 shift `expr $OPTIND - 1 || :`
+
+expr x"$fractional_digits" : x'[1-9][0-9]*$' \
+	\| x"$fractional_digits" : x'0$' > /dev/null
+decimal_point=
+if test $fractional_digits != 0
+then
+	eval `locale -k LC_NUMERIC | grep ^decimal_point=` 2> /dev/null || :
+	: ${decimal_point:="."}
+fi
+fractional_pic=`printf '%*s' $fractional_digits '' | tr -c '?' '?'`
 
 b2i() {
 	$1 && echo 1 || echo 0
@@ -173,6 +188,16 @@ then
   each package group.
 
 EOF
+elif $include_suggested
+then
+	:
+else
+	cat << EOF # Line width 66
+* Only the download sizes for the shown package groups are
+  included - recommended and suggested packages have not been
+  automatically included.
+
+EOF
 fi
 if $include_suggested
 then
@@ -209,9 +234,6 @@ then
 
 EOF
 fi
-decimal_point=
-eval `locale -k LC_NUMERIC | grep ^decimal_point=` 2> /dev/null || :
-: ${decimal_point:="."}
 if test $# = 0
 then
 	while IFS= read -r line
@@ -245,7 +267,7 @@ do
 		then
 			if test $unit != bytes
 			then
-				leading=${bytes%?}
+				leading=${bytes%$fractional_pic}
 				fractional=${bytes#$leading}
 				bytes=$leading$decimal_point$fractional
 			fi
@@ -254,8 +276,12 @@ do
 		fi
 		if test $unit = bytes
 		then
-			limit=`expr $divisor \* 10`
-			bytes=`expr $bytes \* 10 || :`
+			limit=$divisor
+			for fr in `seq $fractional_digits`
+			do
+				limit=`expr $limit \* 10`
+				bytes=`expr $bytes \* 10 || :`
+			done
 			divisor2=`expr $divisor \* 2`
 		fi
 		# bytes = floor(bytes / divisor + 0.5)
