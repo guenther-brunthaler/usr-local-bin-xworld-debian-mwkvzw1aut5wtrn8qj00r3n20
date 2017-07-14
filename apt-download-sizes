@@ -1,7 +1,7 @@
 #! /bin/sh
 exit_version() {
 	cat << EOF; exit
-$APPLICATION_NAME Version 2017.194
+$APPLICATION_NAME Version 2017.194.1
 
 Copyright (c) 2017 Guenther Brunthaler. All rights reserved.
 
@@ -77,6 +77,12 @@ Options:
 -s: Include suggested packages by each package group in the
     download size. By default, suggested packages are not
     automatically included.
+-I: Show (approximate) installation sizes rather than download
+    sizes. This value is taken from the package descriptions and
+    will always be an estimate, because the actually required
+    storage space depends on the filesystem overhead, which in
+    turn depends on the file system type, cluster size and other
+    factors.
 -h: Display this help.
 -V: Display version of $APPLICATION_NAME and exit.
 EOF
@@ -91,9 +97,11 @@ units_are_bytes=false
 honor_already_installed=false
 honor_download_cache=false
 fractional_digits=2
-while getopts F:ciBbDrsdhV opt
+show_installation_sizes=false
+while getopts IF:ciBbDrsdhV opt
 do
 	case $opt in
+		I) show_installation_sizes=true;;
 		F) fractional_digits=$OPTARG;;
 		c) honor_download_cache=true;;
 		i) honor_already_installed=true;;
@@ -124,10 +132,29 @@ b2i() {
 	$1 && echo 1 || echo 0
 }
 
+installed_bytes() {
+	# Units are actually kibibytes. Older Debian documentation still says
+	# "kilobytes" because historically kilobytes *were* kibibytes.
+	expr `
+		apt-cache show -- "$@" | sed '
+			s/^Installed-Size:[[:space:]]*//; t done
+			d
+			: done
+			q
+		'
+	` \* 1024
+}
+
 process_group() {
 	printf '%s: ' "$*"
 	# Build apt-get command line, starting from behind.
-	set -- --print-uris -qq -- "$@"
+	set -- -qq -- "$@"
+	if $show_installation_sizes
+	then
+		set -- --simulate "$@"
+	else
+		set -- --print-uris "$@"
+	fi
 	if $honor_download_cache
 	then
 		:
@@ -152,7 +179,7 @@ process_group() {
 	else
 		set -- --reinstall "$@"
 	fi
-	set -- --download "$@"
+	set -- --download-only "$@"
 	set apt-get install "$@"
 	if $DEBUG
 	then
@@ -168,71 +195,93 @@ process_group() {
 		echo "$line" >& 2
 		return
 	fi
-	"$@" | {
-		s=0
-		while IFS= read line
-		do
-			eval 'set -- $line'
-			s=`expr $s + $3`
-		done
-		echo $s
-	}
+	"$@" | if $show_installation_sizes
+	then
+		grep ^Inst | cut -d ' ' -f 2 | {
+			s=0
+			while IFS= read line
+			do
+				bytes=`installed_bytes "$line"`
+				s=`expr $s + $bytes`
+			done
+			echo $s
+		}
+	else
+		{
+			s=0
+			while IFS= read line
+			do
+				eval 'set -- $line'
+				s=`expr $s + $3`
+			done
+			echo $s
+		}
+	fi
 }
 
-t='Package group download sizes, sorted by group totals'
+bullet_point() {
+	local target_line_width first_prefix rest_prefix fold_width \
+		prefix_width
+	target_line_width=66
+	first_prefix='* '
+	prefix_width=${#first_prefix}
+	rest_prefix=`printf '%*s:' $prefix_width ''`
+	rest_prefix=${rest_prefix%:}
+	# "fold -s" breaks *after' spaces.
+	fold_width=`expr $target_line_width - $prefix_width + 1`
+	printf '%s\n' "$*" | fold -sw $fold_width \
+	| while IFS= read -r line
+	do
+		printf '%s%s\n' "$first_prefix" "${line%" "}"
+		first_prefix=$rest_prefix
+	done
+	echo
+}
+
+idownld=`$show_installation_sizes && echo installation || echo download`
+t="Package group $idownld sizes, sorted by group totals"
 echo "$t"; printf '%*s' ${#t} '' | tr -c = =; echo; echo
 if $include_recommended
 then
-	cat << EOF # Line width 66
-* The download sizes of all recommended packages are included for
-  each package group.
+	bullet_point \
+		"The $idownld sizes of all recommended packages are" \
+		"included for each package group."
 
-EOF
 elif $include_suggested
 then
 	:
 else
-	cat << EOF # Line width 66
-* Only the download sizes for the shown package groups are
-  included - recommended and suggested packages have not been
-  automatically included.
-
-EOF
+	bullet_point \
+		"Only the $idownld sizes for the shown package groups are" \
+		"included - recommended and suggested packages have not" \
+		"been automatically included."
 fi
 if $include_suggested
 then
-	cat << EOF # Line width 66
-* The download sizes of all suggested packages are included for
-  each package group.
-
-EOF
+	bullet_point \
+		"The $idownld sizes of all suggested packages are included" \
+		"for each package group."
 fi
 if $include_all_dependencies
 then
-	cat << EOF # Line width 66
-* The download sizes of all packages directly or indirectly
-  required by the resulting list of packages are also included
-  for each package group.
-
-EOF
+	bullet_point \
+		"The $idownld sizes of all packages directly or indirectly" \
+		"required by the resulting list of packages are also" \
+		"included for each package group."
 fi
 if $honor_already_installed
 then
-	cat << EOF # Line width 66
-* Packages which are already installed on the local machine are
-  excluded from the displayed download sizes.
-
-EOF
+	bullet_point \
+		"Packages which are already installed on the local machine" \
+		"are excluded from the displayed $idownld sizes."
 fi
 if $honor_download_cache
 then
-	cat << EOF # Line width 66
-* Packages for which the installation files have already been
-  downloaded to the local download cache are excluded from the
-  displayed download sizes. It does not matter whether they are
-  actually installed or not.
-
-EOF
+	bullet_point \
+		"Packages for which the installation files have already" \
+		"been downloaded to the local download cache are excluded" \
+		"from the displayed $idownld sizes. It does not matter" \
+		"whether they are actually installed or not."
 fi
 if test $# = 0
 then
