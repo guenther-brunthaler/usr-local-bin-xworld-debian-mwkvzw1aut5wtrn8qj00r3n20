@@ -1,7 +1,7 @@
 #! /bin/sh
 exit_version() {
 	cat << EOF; exit
-$APPLICATION_NAME Version 2017.194.1
+$APPLICATION_NAME Version 2017.212
 
 Copyright (c) 2017 Guenther Brunthaler. All rights reserved.
 
@@ -24,6 +24,13 @@ where <pkg_grp1> ... are groups consisting of either a single
 installation package name or multiple package names (as one
 argument per group, the names within the argument separated by
 spaces).
+
+It is also possible to specify the names of executables instead
+of package names, but only if that executable is locally
+installed as part of some package and does not have the same name
+as an existing package. That is, package names are considered
+first, and executable names only as a fallback if no package with
+that name exists.
 
 $APPLICATION_NAME will then calculate the combined download size
 for every group and display the result in multiple lines, one
@@ -146,7 +153,40 @@ installed_bytes() {
 }
 
 process_group() {
+	local n ok p
 	printf '%s: ' "$*"
+	# Verify that all packages exist. Replace executables by
+	# package names otherwise.
+	n=$#; ok=true
+	while test $n != 0
+	do
+		if apt-cache show -- "$1" > /dev/null 2>& 1
+		then
+			set -- "$@" "$1"; shift
+		else
+			case $1 in
+				*/*) p=$1;;
+				*) p=`command -v -- "$1"`
+			esac
+			if
+				p=`readlink -f -- "$p"` \
+				&& test -f "$p" && test -x "$p" \
+				&& p=`dpkg -S -- "$p" 2> /dev/null` \
+				&& test "${p%:*}" != "$p" \
+				&& p=${p%:*} && test "$p"
+			then
+				set -- "$@" "$p"; shift
+			else
+				echo "'$1' is neither a package name nor a" \
+					"locally installed excutable" \
+					"(that could be found via \$PATH)!" \
+					>& 2
+				ok=false
+			fi
+		fi
+		n=`expr $n - 1 || :`
+	done
+	$ok || exit
 	# Build apt-get command line, starting from behind.
 	set -- -qq -- "$@"
 	if $show_installation_sizes
