@@ -1,7 +1,7 @@
 #! /bin/sh
 exit_version() {
 	wr << EOF; exit
-$APP version 2018.205
+$APP version 2018.221
 Copyright (c) 2018 Guenther Brunthaler. All rights reserved.
 
 This script is free software.
@@ -14,7 +14,7 @@ exit_help() {
 	wr --flowtext << EOF; echo; exit_version
 $APP - create empty metapackages which just depend on other packages
 
-Usage: $APP [ <options> ] [--] <software_name> [ <dependencies> ... ]
+Usage: $APP [ <options> ] [--] [ <software_name> ] <dependencies> ...
 
 $APP synthesizes a new pseudo *.deb file which depends on the specified other
 Debian packages, but does not install any actual files (other than the package
@@ -61,6 +61,21 @@ It is illegal to mix both variants: If the -d option with its single option
 argument is present, then no normal non-options arguments are allowed and vice
 versa.
 
+Option -a can be used if the metapackage for suite shall have the same
+<software_name> as one of the existing packages in the suite. With -a,
+<software_name> is omitted and the name of the first dependency will be also
+become the <software_name>. For instance,
+
+\$ $APP -a julia julia-doc
+
+creates a "software suite"-style pseudo-package with a <software_name> of
+"julia", containing the two already-existing packages "julia" and "julia-doc"
+as dependencies. This has exactly the same meaning as
+
+\$ $APP julia julia julia-doc
+
+but saves typing "julia" twice.
+
 In order to get rid of the installed pseudo-package (and its automatically
 installed dependencies) later, just use "apt-get remove" or "dpkg -r" like for
 any normal package.
@@ -76,6 +91,13 @@ Supported options:
 
 -d <deps>: Specify the dependencies as a single argument in the same syntax
 used by "Depends:"-lines displayed by "dpkg -s".
+
+-a: Automatic naming. Normally, <software_name> must be explicitly specified.
+When specifying the dependencies as separate options, i. e. when option -d is
+not used, then option -a selects the name as the fist dependency also as the
+<software_name>. Obviously, this must not be combined with option -d. -a is
+highly useful when creating suite packages using the primary package of the
+suite also as the suite's metapackage <software_name>.
 
 -m: Change the text in the description of the synthesized metapackage in order
 to indicate that the specified software name is actually the name of a
@@ -131,10 +153,12 @@ test -t 0 && WRAP_WIDTH=`tput cols 2> /dev/null` || WRAP_WIDTH=66
 test $WRAP_WIDTH -gt 132 && WRAP_WIDTH=72
 
 deps=
+implied_name=false
 just_a_bundle=true
-while getopts md:Vh opt
+while getopts amd:Vh opt
 do
 	case $opt in
+		a) implied_name=true;;
 		m) just_a_bundle=false;;
 		d) deps=$OPTARG;;
 		h) exit_help;;
@@ -149,10 +173,20 @@ test "$psdpkn" || die "Missing name of pseudo package to synthesize!"
 shift
 if test "$deps"
 then
+	$implied_name && die "Option -a is incompatible with option -d!"
 	deps=`println "$deps" | tr -dc '[:graph:]'`
 	test $# = 0 || die "Option -d and the presence of non-option" \
 		"arguments are mutually exclusive!"
 else
+	if $implied_name
+	then
+		case $psdpkn in
+			-* | *[,\|\ ]*)
+				die "Invalid suite name '$psdpkn'" \
+					"(option -a is in effect)!";;
+		esac
+		set -f; set -- "$psdpkn" "$@"; set +f
+	fi
 	deps=
 	nsep=
 	for dep
