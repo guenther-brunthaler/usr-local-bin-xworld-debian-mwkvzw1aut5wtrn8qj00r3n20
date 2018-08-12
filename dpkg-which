@@ -1,0 +1,36 @@
+#! /bin/sh
+# Version 2018.224
+# Copyright (c) 2018 Guenther Brunthaler. All rights reserved.
+# 
+# This script is free software.
+# Distribution is permitted under the terms of the GPLv3.
+
+set -e
+trap 'test $? = 0 || echo "$0 failed" >& 2' 0
+
+while getopts '' opt
+do
+	case $opt in
+		*) false || exit
+	esac
+done
+shift `expr $OPTIND - 1 || :`
+
+{
+	n=$#
+	while test $n != 0
+	do
+		if
+			c=`command -v -- "$1" 2> /dev/null` \
+			&& test "$c" && test -e "$c"
+		then
+			c=`readlink -f -- "$c"`
+			set -- "$@" "$c"
+		else
+			echo "(not in any package): $1"
+		fi
+		shift
+		n=`expr $n - 1 || :`
+	done
+	test $# != 0 && dpkg -S -- "$@"
+} | LC_COLLATE=C sort
