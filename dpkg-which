@@ -27,7 +27,7 @@ shift `expr $OPTIND - 1 || :`
 			c=`readlink -f -- "$c"`
 			set -- "$@" "$c"
 		else
-			echo "(not in any package): $1"
+			echo "(not in any locally-installed package): $1"
 		fi
 		shift
 		n=`expr $n - 1 || :`
