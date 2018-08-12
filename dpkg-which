@@ -1,5 +1,5 @@
 #! /bin/sh
-# Version 2018.224
+# Version 2018.224.1
 # Copyright (c) 2018 Guenther Brunthaler. All rights reserved.
 # 
 # This script is free software.
@@ -16,21 +16,16 @@ do
 done
 shift `expr $OPTIND - 1 || :`
 
-{
-	n=$#
-	while test $n != 0
-	do
-		if
-			c=`command -v -- "$1" 2> /dev/null` \
-			&& test "$c" && test -e "$c"
-		then
-			c=`readlink -f -- "$c"`
-			set -- "$@" "$c"
-		else
-			echo "(not in any locally-installed package): $1"
-		fi
-		shift
-		n=`expr $n - 1 || :`
-	done
-	test $# != 0 && dpkg -S -- "$@"
-} | LC_COLLATE=C sort
+for a
+do
+	if
+		c=`command -v -- "$a" 2> /dev/null` \
+		&& test "$c" && test -e "$c"
+	then
+		c=`readlink -f -- "$c"`
+		dpkg -S -- "$c" 2> /dev/null && continue
+		echo "(not in any locally-installed package): $a"
+	else
+		echo "(not found at all): $a"
+	fi
+done | LC_COLLATE=C sort
