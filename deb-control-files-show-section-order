@@ -1,0 +1,29 @@
+#! /bin/sh
+# Version 2021.83
+# Copyright (c) 2021 Guenther Brunthaler. All rights reserved.
+#
+# This script is free software.
+# Distribution is permitted under the terms of the GPLv3.
+
+set -e
+trap 'test $? = 0 || echo "\"$0\" failed!" >& 2' 0
+case $1 in
+	'') l=status;;
+	*) l=available
+esac
+cat /var/lib/dpkg/$l \
+| sed 's/^$/|/; t; b 1; :1; s/^\([^:[:space:]]\{1,\}\):.*/\1/; t; d' \
+| tr '\n' ' ' | tr '|' '\n' | sed '/^ *$/d' | sort -u \
+| while read l
+do
+	set $l
+	l=
+	for a
+	do
+		case $l in
+			'')
+			;; *) echo $l $a
+		esac
+		l=$a
+	done
+done | tsort
