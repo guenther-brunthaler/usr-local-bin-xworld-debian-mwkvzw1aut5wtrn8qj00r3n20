@@ -1,0 +1,36 @@
+#! /bin/sh
+exit_version() {
+	cat << ===; exit
+$APP Version 2021.131
+Copyright (c) 2021 Guenther Brunthaler. All rights reserved.
+
+This script is free software.
+Distribution is permitted under the terms of the GPLv3.
+===
+}
+
+exit_help() {
+	cat << ===; echo; exit_version
+$APP - combine build dependencies from multiple *.dsc files.
+
+Pass *.dsc Files as arguments or pipe them via standard input.
+The combined output, uniquified and sorted lexicographically,
+will be written to standard output.
+===
+}
+
+set -e
+APP=${0##*/}
+trap 'test $? = 0 || echo "\"$0\" failed!" >& 2' 0
+while getopts hV opt
+do
+	case $opt in
+		h) exit_help;;
+		V) exit_version;;
+		*) false || exit
+	esac
+done
+shift `expr $OPTIND - 1 || :`
+sed 's/^Build-Depends: //; t 1; d; :1; s/, /\n/g; s/ \[[^]]\{1,\}]//g' \
+	${1+"$@"} \
+| LC_COLLATE=C sort -u | tr \\n , | sed 's/,$/\n/; s/,/, /g'
