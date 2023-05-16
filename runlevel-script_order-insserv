@@ -1,0 +1,40 @@
+#! /bin/sh
+
+# Show the order in which the service-scripts will be run for each runlevel.
+#
+# Outputs lines with fields separated by ":" as follows:
+#
+# * Runlevel name (single digit or letter)
+# * "K" (run with "stop" argument) or "S" (run with "start" argument)
+# * Startup ordering number within same runlevel
+# * The basename of the actual service script to run
+#
+# The lines are sorted by runlevel priority first, then by execution order
+# within that runlevel second. Runlevel priorities have been selected by
+# grouping runlevels into categories in the following order: startup, normal,
+# one-time, shutdown. Within every category, the runlevels are sorted in ASCII
+# collation order.
+#
+# Version 2023.136
+# Copyright (c) 2023 Guenther Brunthaler. All rights reserved.
+#
+# This script is free software.
+# Distribution is permitted under the terms of the GPLv3.
+
+PATH=$PATH:/usr/sbin:/sbin # Allow script to be run by normal users, too.
+t=${TMPDIR:-/tmp}/deps.$$ && mkdir -m 700 "$t" \
+&& (
+	trap "rm -r -- '$t'" 0
+	insserv -s -f | while IFS=: read o1 o2 r svc
+	do
+		for r in $r
+		do
+			echo $r:$o1:$o2:$svc
+		done
+	done | tee -- "$t/1" \
+	| cut -d : -f 1 | tr S1-57-9A-RT-Za-z60 0-9A-Za-z > "$t/2" \
+	&& cut -d : -f 2- < "$t/1" | paste -d : "$t/2" - \
+	| LC_COLLATE=C sort -t : | tee -- "$t/3" \
+	| cut -d : -f 1 | tr 0-9A-Za-z S1-57-9A-RT-Za-z60 > "$t/4" \
+	&& cut -d : -f 2- < "$t/3" | paste -d : "$t/4" -
+)
