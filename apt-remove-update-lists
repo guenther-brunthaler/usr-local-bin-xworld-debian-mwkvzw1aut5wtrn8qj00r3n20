@@ -1,0 +1,11 @@
+#! /bin/sh
+
+# Remove the files in /var/lib/apt/lists/ which have been downloaded
+# cummulatively by "apt-get update". But don't touch any subdirectories or the
+# "lock" file there.
+#
+# v2023.250
+
+set -ex
+cd /var/lib/apt/lists
+find . -path './*' -prune ! -name lock -type f -exec rm -v {} +

@@ -1,0 +1,15 @@
+#! /bin/sh
+
+# Write a diff-friendly *.dfa archive of the files in /var/lib/apt/lists/which
+# have been downloaded cummulatively by "apt-get update" to standard output.
+# But don't include any subdirectories or the "lock" file.
+#
+# Bug in "dfa": The output of this script cannot be fed back directly into
+# "dfa" for extraction of listing of contents. It does work after the output
+# has written to a temporary file.
+#
+# v2023.250
+
+set -e
+cd /var/lib/apt/lists
+find . -path './*' -prune ! -name lock -type f | cut -d / -f 2- | dfa -c -T
