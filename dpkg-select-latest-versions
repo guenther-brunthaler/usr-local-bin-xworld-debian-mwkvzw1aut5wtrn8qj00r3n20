@@ -1,0 +1,46 @@
+#! /bin/sh
+
+# Standard input must be lines in the format:
+#
+# pkname pkvers rest...
+#
+# grouped by $pkname (such as sorted ascending or descending by this field).
+# Then this script will emit only those lines of every group (with the same
+# $pkname) which have the newest (latest) $pkvers.
+#
+# If option -o is given, then the oldest rather than the newest version of
+# every group is selected for output.
+#
+# v2025.272
+set -e
+trap 'test $? = 0 || echo "\"$0\" failed!" >& 2' 0
+
+operator=gt
+while getopts o opt
+do
+	case $opt in
+		o) operator=lt;;
+		*) false || exit
+	esac
+done
+shift `expr $OPTIND - 1 || :`
+
+lp=
+while read p v rest
+do
+	if test "$lp" != "$p"
+	then
+		if test "$lp"
+		then
+			echo "$lp $lv $lr"
+		fi
+		lp=$p lv=$v lr=$rest
+	elif dpkg --compare-versions "$v" $operator "$lv"
+	then
+		lp=$p lv=$v lr=$rest
+	fi
+done
+if test "$lp"
+then
+	echo "$lp $lv $lr"
+fi
